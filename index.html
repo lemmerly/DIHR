@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Damn I Hate Rats</title>
+<style>
+    body {
+        background: #0b0b0b;
+        color: #eaeaea;
+        font-family: Consolas, monospace;
+        margin: 0;
+        padding: 0;
+    }
+
+    header {
+        background: linear-gradient(90deg, #7a0000, #1a0000);
+        padding: 20px;
+        text-align: center;
+        border-bottom: 2px solid #ff0000;
+    }
+
+    header h1 {
+        margin: 0;
+        font-size: 32px;
+        color: #ff4c4c;
+    }
+
+    header p {
+        margin-top: 5px;
+        color: #ffb3b3;
+        font-size: 14px;
+    }
+
+    #dropzone {
+        margin: 40px auto;
+        width: 80%;
+        max-width: 700px;
+        padding: 40px;
+        border: 2px dashed #ff4c4c;
+        border-radius: 10px;
+        text-align: center;
+        background: #111;
+    }
+
+    #dropzone.dragover {
+        background: #1a0000;
+    }
+
+    #options {
+        width: 80%;
+        max-width: 700px;
+        margin: 0 auto;
+        color: #ccc;
+        font-size: 14px;
+    }
+
+    #results {
+        width: 80%;
+        max-width: 700px;
+        margin: 20px auto;
+        padding: 20px;
+        background: #111;
+        border-radius: 10px;
+        display: none;
+    }
+
+    .label { color: #ff4c4c; }
+    .safe { color: #00ff88; }
+    .warn { color: #ffcc00; }
+    .danger { color: #ff4444; }
+
+    pre {
+        background: #000;
+        padding: 10px;
+        border-radius: 6px;
+        max-height: 220px;
+        overflow: auto;
+        font-size: 12px;
+    }
+
+    footer {
+        text-align: center;
+        font-size: 12px;
+        color: #777;
+        margin: 40px 0;
+    }
+#community {
+    width: 100%;
+    margin-top: 80px;
+    padding: 40px 0;
+    background: #0f0f0f;
+    border-top: 2px solid #2a2a2a;
+    text-align: center;
+}
+
+#community h2 {
+    color: #ff4c4c;
+    margin-bottom: 20px;
+    font-size: 24px;
+}
+
+#discord-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 22px;
+    background: #5865F2;
+    color: white;
+    text-decoration: none;
+    font-size: 16px;
+    border-radius: 8px;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+#discord-link:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 0 15px rgba(88,101,242,0.6);
+}
+
+#discord-link img {
+    width: 28px;
+    height: 28px;
+}
+
+</style>
+</head>
+<body>
+
+<header>
+    <h1>Damn I Hate Rats</h1>
+    <p>Heuristic EXE / DLL Threat Checker (Browser-Only)</p>
+</header>
+
+<div id="dropzone">
+    <h2>Drag & Drop an EXE or DLL</h2>
+    <p>No upload. No execution. Local analysis only.</p>
+</div>
+
+<div id="options">
+    <label>
+        <input type="checkbox" id="sourceCheck" checked>
+        Enable .NET / C# Source Code Inspection
+    </label>
+</div>
+
+<div id="results"></div>
+
+<footer>
+    ⚠ This is NOT an antivirus. This is a one-person ran website that checks DLL's and EXE's through its source code and Malware Chance.
+</footer>
+
+<div id="community">
+    <h2>Wanna join our community?</h2>
+    <a id="discord-link" href="https://discord.gg/Tc5sDgCFXJ" target="_blank">
+        <img src="https://cdn.jsdelivr.net/gh/simple-icons/simple-icons/icons/discord.svg" alt="Discord">
+        Join our Discord
+    </a>
+</div>
+
+<script>
+const dropzone = document.getElementById("dropzone");
+const results = document.getElementById("results");
+
+dropzone.addEventListener("dragover", e => {
+    e.preventDefault();
+    dropzone.classList.add("dragover");
+});
+
+dropzone.addEventListener("dragleave", () => {
+    dropzone.classList.remove("dragover");
+});
+
+dropzone.addEventListener("drop", e => {
+    e.preventDefault();
+    dropzone.classList.remove("dragover");
+    const file = e.dataTransfer.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => analyzeFile(file, new Uint8Array(reader.result));
+    reader.readAsArrayBuffer(file);
+});
+
+function analyzeFile(file, bytes) {
+    const name = file.name.toLowerCase();
+    const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
+
+    let suspicion = 0;
+    let reasons = [];
+    let stringsFound = [];
+
+    if (!name.endsWith(".exe") && !name.endsWith(".dll")) {
+        reasons.push("File is not EXE or DLL");
+        suspicion += 40;
+    }
+
+    if (sizeMB < 0.2) {
+        suspicion += 25;
+        reasons.push("Unusually small binary (possible loader/dropper)");
+    }
+
+    if (sizeMB > 50) {
+        suspicion += 10;
+        reasons.push("Very large binary (packed or bundled)");
+    }
+
+    const suspiciousNames = ["rat", "stealer", "loader", "inject", "crypt", "client"];
+    suspiciousNames.forEach(s => {
+        if (name.includes(s)) {
+            suspicion += 20;
+            reasons.push(`Suspicious keyword in filename: "${s}"`);
+        }
+    });
+
+    if (name.includes("update") || name.includes("setup")) {
+        suspicion += 10;
+        reasons.push("Masquerading as installer/update");
+    }
+
+    if (name.endsWith(".dll") && sizeMB < 1) {
+        suspicion += 20;
+        reasons.push("Small DLL (possible injection module)");
+    }
+
+    // ---- .NET DETECTION ----
+    const isDotNet = bytes.includes(0x42) &&
+                     bytes.includes(0x53) &&
+                     bytes.includes(0x4A) &&
+                     bytes.includes(0x42);
+
+    if (isDotNet) {
+        reasons.push("Detected .NET CLR metadata (C#)");
+    }
+
+    // ---- SOURCE / STRING INSPECTION ----
+    if (document.getElementById("sourceCheck").checked && isDotNet) {
+        stringsFound = extractStrings(bytes);
+
+        const indicators = [
+            "System.Net",
+            "HttpClient",
+            "WebClient",
+            "Sockets",
+            "Registry",
+            "RunKey",
+            "Startup",
+            "cmd.exe",
+            "powershell",
+            "Keylogger",
+            "DiscordWebhook",
+            "AES",
+            "Base64",
+            "Invoke",
+            "SendKeys"
+        ];
+
+        indicators.forEach(i => {
+            if (stringsFound.some(s => s.includes(i))) {
+                suspicion += 10;
+                reasons.push(`Suspicious C# API: ${i}`);
+            }
+        });
+    }
+
+    let safety = Math.max(0, 100 - suspicion);
+    let verdict, verdictClass;
+
+    if (suspicion < 25) {
+        verdict = "Likely Safe";
+        verdictClass = "safe";
+    } else if (suspicion < 60) {
+        verdict = "Suspicious";
+        verdictClass = "warn";
+    } else {
+        verdict = "Likely Trojan / RAT";
+        verdictClass = "danger";
+    }
+
+    results.innerHTML = `
+        <h2>Analysis Results</h2>
+        <p><span class="label">File:</span> ${file.name}</p>
+        <p><span class="label">Size:</span> ${sizeMB} MB</p>
+        <p><span class="label">.NET Detected:</span> ${isDotNet ? "Yes" : "No"}</p>
+        <p><span class="label">Verdict:</span> <span class="${verdictClass}">${verdict}</span></p>
+        <p><span class="label">Safety Level:</span> <span class="${verdictClass}">${safety}%</span></p>
+        <p><span class="label">Heuristic Flags:</span></p>
+        <ul>
+            ${reasons.length ? reasons.map(r => `<li>${r}</li>`).join("") : "<li>No obvious red flags</li>"}
+        </ul>
+
+        ${stringsFound.length ? `
+        <p class="label">Extracted C# Strings (dnSpy-style)</p>
+        <pre>${stringsFound.slice(0, 50).join("\n")}</pre>
+        <p style="font-size:12px;color:#777;">Showing first 50 strings</p>
+        ` : ""}
+    `;
+
+    results.style.display = "block";
+}
+
+function extractStrings(bytes) {
+    let out = [];
+    let current = "";
+
+    for (let i = 0; i < bytes.length; i++) {
+        const c = bytes[i];
+        if (c >= 32 && c <= 126) {
+            current += String.fromCharCode(c);
+        } else {
+            if (current.length >= 6) out.push(current);
+            current = "";
+        }
+    }
+    return out;
+}
+</script>
+
+</body>
+</html>
