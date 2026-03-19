@@ -181,87 +181,112 @@ dropzone.addEventListener("drop", e => {
     reader.readAsArrayBuffer(file);
 });
 
+function detectFileType(name) {
+    const ext = name.split(".").pop();
+
+    const map = {
+        exe: "Windows Executable",
+        dll: "Dynamic Link Library",
+        js: "JavaScript",
+        ps1: "PowerShell Script",
+        bat: "Batch Script",
+        cmd: "Command Script",
+        vbs: "VBScript",
+        py: "Python Script",
+        jar: "Java Archive",
+        zip: "ZIP Archive",
+        rar: "RAR Archive",
+        txt: "Text File"
+    };
+
+    return map[ext] || "Unknown / Generic Binary";
+}
+
 function analyzeFile(file, bytes) {
     const name = file.name.toLowerCase();
     const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
+    const fileType = detectFileType(name);
 
     let suspicion = 0;
     let reasons = [];
-    let stringsFound = [];
 
-    if (!name.endsWith(".exe") && !name.endsWith(".dll")) {
-        reasons.push("File is not EXE or DLL");
-        suspicion += 40;
+    // ---- BASIC HEURISTICS ----
+    if (file.size < 200000) {
+        suspicion += 15;
+        reasons.push("Very small file (possible loader/script)");
     }
 
-    if (sizeMB < 0.2) {
-        suspicion += 25;
-        reasons.push("Unusually small binary (possible loader/dropper)");
-    }
-
-    if (sizeMB > 50) {
+    if (file.size > 100 * 1024 * 1024) {
         suspicion += 10;
-        reasons.push("Very large binary (packed or bundled)");
+        reasons.push("Very large file (packed or embedded content)");
     }
 
-    const suspiciousNames = ["rat", "stealer", "loader", "inject", "crypt", "client"];
-    suspiciousNames.forEach(s => {
-        if (name.includes(s)) {
-            suspicion += 20;
-            reasons.push(`Suspicious keyword in filename: "${s}"`);
+    // ---- STRING EXTRACTION ----
+    const strings = extractStrings(bytes);
+
+    // ---- UNIVERSAL SUSPICIOUS INDICATORS ----
+    const badIndicators = [
+        "powershell",
+        "cmd.exe",
+        "wget",
+        "curl",
+        "Invoke-WebRequest",
+        "DownloadString",
+        "Base64",
+        "FromBase64String",
+        "AES",
+        "Encrypt",
+        "Decrypt",
+        "socket",
+        "webhook",
+        "discord",
+        "token",
+        "keylogger",
+        "registry",
+        "startup",
+        "autorun",
+        "CreateRemoteThread",
+        "VirtualAlloc",
+        "WriteProcessMemory",
+        "OpenProcess"
+    ];
+
+    badIndicators.forEach(ind => {
+        if (strings.some(s => s.toLowerCase().includes(ind.toLowerCase()))) {
+            suspicion += 8;
+            reasons.push(`Suspicious string: ${ind}`);
         }
     });
 
-    if (name.includes("update") || name.includes("setup")) {
-        suspicion += 10;
-        reasons.push("Masquerading as installer/update");
-    }
-
-    if (name.endsWith(".dll") && sizeMB < 1) {
+    // ---- SCRIPT DETECTION ----
+    if (name.endsWith(".ps1") || name.endsWith(".bat") || name.endsWith(".cmd")) {
         suspicion += 20;
-        reasons.push("Small DLL (possible injection module)");
+        reasons.push("Script file capable of system execution");
     }
 
-    // ---- .NET DETECTION ----
-    const isDotNet = bytes.includes(0x42) &&
-                     bytes.includes(0x53) &&
-                     bytes.includes(0x4A) &&
-                     bytes.includes(0x42);
-
-    if (isDotNet) {
-        reasons.push("Detected .NET CLR metadata (C#)");
+    if (name.endsWith(".js")) {
+        suspicion += 10;
+        reasons.push("JavaScript file (can execute via Node/browser exploits)");
     }
 
-    // ---- SOURCE / STRING INSPECTION ----
-    if (document.getElementById("sourceCheck").checked && isDotNet) {
-        stringsFound = extractStrings(bytes);
-
-        const indicators = [
-            "System.Net",
-            "HttpClient",
-            "WebClient",
-            "Sockets",
-            "Registry",
-            "RunKey",
-            "Startup",
-            "cmd.exe",
-            "powershell",
-            "Keylogger",
-            "DiscordWebhook",
-            "AES",
-            "Base64",
-            "Invoke",
-            "SendKeys"
-        ];
-
-        indicators.forEach(i => {
-            if (stringsFound.some(s => s.includes(i))) {
-                suspicion += 10;
-                reasons.push(`Suspicious C# API: ${i}`);
-            }
-        });
+    if (name.endsWith(".jar")) {
+        suspicion += 10;
+        reasons.push("Java archive (can contain obfuscated code)");
     }
 
+    // ---- ARCHIVE WARNING ----
+    if (name.endsWith(".zip") || name.endsWith(".rar")) {
+        suspicion += 10;
+        reasons.push("Archive file (hidden payload possible)");
+    }
+
+    // ---- FAKE FILE NAMES ----
+    if (name.includes("crack") || name.includes("free") || name.includes("cheat")) {
+        suspicion += 25;
+        reasons.push("High-risk naming (common malware disguise)");
+    }
+
+    // ---- VERDICT ----
     let safety = Math.max(0, 100 - suspicion);
     let verdict, verdictClass;
 
@@ -272,27 +297,26 @@ function analyzeFile(file, bytes) {
         verdict = "Suspicious";
         verdictClass = "warn";
     } else {
-        verdict = "Likely Trojan / RAT";
+        verdict = "High Risk / Possible Malware";
         verdictClass = "danger";
     }
 
     results.innerHTML = `
         <h2>Analysis Results</h2>
         <p><span class="label">File:</span> ${file.name}</p>
+        <p><span class="label">Type:</span> ${fileType}</p>
         <p><span class="label">Size:</span> ${sizeMB} MB</p>
-        <p><span class="label">.NET Detected:</span> ${isDotNet ? "Yes" : "No"}</p>
         <p><span class="label">Verdict:</span> <span class="${verdictClass}">${verdict}</span></p>
         <p><span class="label">Safety Level:</span> <span class="${verdictClass}">${safety}%</span></p>
+
         <p><span class="label">Heuristic Flags:</span></p>
         <ul>
             ${reasons.length ? reasons.map(r => `<li>${r}</li>`).join("") : "<li>No obvious red flags</li>"}
         </ul>
 
-        ${stringsFound.length ? `
-        <p class="label">Extracted C# Strings (dnSpy-style)</p>
-        <pre>${stringsFound.slice(0, 50).join("\n")}</pre>
-        <p style="font-size:12px;color:#777;">Showing first 50 strings</p>
-        ` : ""}
+        <p class="label">Extracted Strings</p>
+        <pre>${strings.slice(0, 80).join("\n")}</pre>
+        <p style="font-size:12px;color:#777;">Showing first 80 strings</p>
     `;
 
     results.style.display = "block";
